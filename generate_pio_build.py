@@ -5,78 +5,119 @@ PlatformIO template build script generator using Arduino IDE 3rd-party hardware
 specification file (platform.txt).
 """
 
+from pprint import pformat
 import sys
 import re
 import shlex
-from typing import List, Dict, Callable, AnyStr, Any
+import inspect
+from typing import Dict, List, Set, Tuple, Callable, AnyStr, Any
 
 RECIPE_IDS = {
-    'c': 'recipe.c.o.pattern',          # C compiling
-    'c++': 'recipe.cpp.o.pattern',      # C++ compiling
-    'as': 'recipe.S.o.pattern',         # asm compiling
-    'ld': 'recipe.c.combine.pattern',   # linking
-    'ar': 'recipe.ar.pattern'           # creating archive
+    'c': 'recipe_c_o_pattern',          # C compiling
+    'c++': 'recipe_cpp_o_pattern',      # C++ compiling
+    'as': 'recipe_S_o_pattern',         # asm compiling
+    'ld': 'recipe_c_combine_pattern',   # linking
+    'ar': 'recipe_ar_pattern'           # creating archive
 }
 
 
-def extract_v_tokens(tokens: List[AnyStr], match: Callable[[AnyStr], re.Match]) -> List[AnyStr]:
-    result = []
+def intersection(list1: List[AnyStr], list2: List[AnyStr]) -> List[AnyStr]:
+    return [item for item in list1 if item in list2]
+
+
+def difference(list1: List[AnyStr], list2: List[AnyStr]) -> List[AnyStr]:
+    return [item for item in list1 if item not in list2]
+
+
+def extract_v_tokens(tokens: List[AnyStr], match: Callable[[AnyStr], re.Match], consume=False) -> Set[AnyStr]:
+    result = set()
+    to_clean = set()
     for token in tokens:
         m = match(token)
         if m is not None:
+            to_clean.add(token)
             v = m.group(1)
-            result.append(v)
+            result.add(v)
+    if consume:
+        for token in to_clean:
+            while True:  # to remove all occurrences
+                try:
+                    tokens.remove(token)
+                except:
+                    break
+
     return result
 
 
-def extract_kv_tokens(tokens: List[AnyStr], match: Callable[[AnyStr], re.Match]) -> Dict[AnyStr, AnyStr]:
-    result = {}
+def extract_kv_tokens(tokens: List[AnyStr], match: Callable[[AnyStr], re.Match], consume=True) -> Set[Tuple[AnyStr, AnyStr]]:
+    result = set()
+    to_clean = []
     for token in tokens:
         matches = match(token)
         if matches is not None:
+            to_clean.append(token)
             k, v = matches.groups()
-            result[k] = v if v else None
+            result.add((k, v if v else None))
+    if consume:
+        for token in to_clean:
+            while True:
+                try:
+                    tokens.remove(token)
+                except:
+                    break
     return result
 
 
-def extract_cppdefines(tokens: List[AnyStr]) -> Dict[AnyStr, AnyStr]:
-    return extract_kv_tokens(tokens, lambda t: re.search("^-D(\w+)=?(.*?)?$", t))
+def extract_cppdefines(tokens: List[AnyStr]) -> Set[Tuple[AnyStr, AnyStr]]:
+    return extract_kv_tokens(
+        tokens, lambda t: re.search("^-D(\w+)=?(.*?)?$", t), True
+    )
 
 
-def extract_cpppath(tokens: List[AnyStr]) -> List[AnyStr]:
-    return extract_v_tokens(tokens, lambda t: re.search("^-I(.*?)$", t))
+def extract_cpppath(tokens: List[AnyStr]) -> Set[AnyStr]:
+    return extract_v_tokens(tokens, lambda t: re.search("^-I(.*?)$", t), True)
 
 
-def extract_libs(cmdline: AnyStr) -> List[AnyStr]:
-    return extract_v_tokens(cmdline, lambda t: re.search("^-l(.*?)$", t))
+def extract_libs(tokens: List[AnyStr]) -> Set[AnyStr]:
+    return extract_v_tokens(tokens, lambda t: re.search("^-l(.*?)$", t), True)
+
+
+def extract_libpaths(tokens: List[AnyStr]) -> Set[AnyStr]:
+    return extract_v_tokens(tokens, lambda t: re.search("^-L(.*?)$", t), True)
 
 
 def extract_build_flags(recipes: Dict[AnyStr, List[AnyStr]]) -> Dict[AnyStr, Any]:
     extracted_flags = {
-        'CCFLAGS': set(),       # C/C++ common compiler flags
-        'CFLAGS': set(),        # C compiler flags
-        'CPPDEFINES': set(),    # C preprocessor flags
-        'CPPPATH': set(),       # C preprocessor includes search path
-        'CXXFLAGS': set(),      # C++ compiler flags
-        'LIBPATH': set(),       # library search path
-        'LIBS': set(),          # libraries to link with
-        'LINKFLAGS': set()      # linker flags
+        'CCFLAGS': list(),       # C/C++ common compiler flags
+        'CFLAGS': list(),        # C compiler flags
+        'CPPDEFINES': list(),    # C preprocessor flags
+        'CPPPATH': list(),       # C preprocessor includes search path
+        'CXXFLAGS': list(),      # C++ compiler flags
+        'LIBPATH': list(),       # library search path
+        'LIBS': list(),          # libraries to link with
+        'LINKFLAGS': list()      # linker flags
     }
 
-    # collect C flags
+    # process C flags
     c_recipe = recipes[RECIPE_IDS['c']]
-    extracted_flags['CPPDEFINES'].add(extract_cppdefines(c_recipe))
-    extracted_flags['CPPPATH'].add(extract_cpppath(c_recipe))
+    extracted_flags['CPPDEFINES'].extend(extract_cppdefines(c_recipe))
+    extracted_flags['CPPPATH'].extend(extract_cpppath(c_recipe))
 
-    # collect C++ flags
+    # process C++ flags
     cxx_recipe = recipes[RECIPE_IDS['c++']]
-    extracted_flags['CPPDEFINES'].add(extract_cppdefines(cxx_recipe))
-    extracted_flags['CPPPATH'].add(extract_cpppath(cxx_recipe))
+    extracted_flags['CPPDEFINES'].extend(extract_cppdefines(cxx_recipe))
+    extracted_flags['CPPPATH'].extend(extract_cpppath(cxx_recipe))
+
+    # extract shared C/C++ flags
+    extracted_flags['CCFLAGS'].extend(intersection(c_recipe, cxx_recipe))
+    extracted_flags['CFLAGS'].extend(difference(c_recipe, cxx_recipe))
+    extracted_flags['CXXFLAGS'].extend(difference(cxx_recipe, c_recipe))
 
     # collect libraries
     ld_recipe = recipes[RECIPE_IDS['ld']]
-    extracted_flags['LIBS'].add(extract_libs(ld_recipe))
-    extracted_flags['LINKFLAGS'].add()
+    extracted_flags['LIBS'].extend(extract_libs(ld_recipe))
+    extracted_flags['LIBPATH'].extend(extract_libpaths(ld_recipe))
+    extracted_flags['LINKFLAGS'].extend(ld_recipe)
 
     return extracted_flags
 
@@ -86,7 +127,14 @@ def expand(def_str: AnyStr, def_index: Dict[AnyStr, AnyStr]) -> AnyStr:
         def __missing__(self, key):
             return f"{{{key}}}"
 
-    return def_str.format_map(fmt_dict(def_index))
+    substitutions = fmt_dict(def_index)
+    before_expansion = def_str
+    after_expansion = def_str.format_map(substitutions)
+    while before_expansion != after_expansion:
+        before_expansion = after_expansion
+        after_expansion = after_expansion.format_map(substitutions)
+
+    return after_expansion
 
 
 def extract_expanded_recipes(platform_def: Dict[AnyStr, AnyStr]) -> Dict[AnyStr, List[AnyStr]]:
@@ -120,25 +168,69 @@ def read_platform_def(platform_def_path: AnyStr) -> Dict[AnyStr, AnyStr]:
     return result
 
 
+def clean_recipe(recipe: List[AnyStr]) -> List[AnyStr]:
+    # pop first element containing command
+    recipe.pop(0)
+
+    # remove any output spec
+    if "-o" in recipe:
+        output_opt = recipe.index("-o")
+        recipe = recipe[0:output_opt] + recipe[output_opt + 2:]
+
+    # filter tokens
+    to_clean = ["{includes}", "{object_files}", "{source_file}"]
+    recipe = [token for token in recipe if token not in to_clean]
+
+    return recipe
+
+
+def clean_recipes(recipes: Dict[AnyStr, List[AnyStr]]) -> Dict[AnyStr, List[AnyStr]]:
+    result = dict()
+    for rid, recipe in recipes.items():
+        result[rid] = clean_recipe(recipe)
+    return result
+
+
 def main(argv):
     num_args = len(argv)
 
-    if num_args < 2 or num_args > 3:
-        print("Usage: {} <platform.txt> [<output_build_script.py>]".format(
+    if num_args < 3 or num_args > 4:
+        print("Usage: {} <platform.txt> <build_script_template> [<output_file>]".format(
             argv[0]))
         exit(1)
 
     platform = argv[1]
+    template_path = argv[2]
 
-    if num_args == 3:
-        script = argv[2]
+    if num_args == 4:
+        output_path = argv[3]
     else:
-        script = None
+        output_path = None
 
     platform_def = read_platform_def(platform)
     recipes = extract_expanded_recipes(platform_def)
-    build_flags = extract_build_flags(recipes)
-    print(build_flags)
+    recipes = clean_recipes(recipes)
+    substitutions = extract_build_flags(recipes)
+    substitutions['HELPERS'] = "\n".join([
+        inspect.getsource(expand),
+        """
+for opt in COMPILE_OPTS.keys():
+    COMPILE_OPTS[opt] = [expand(token, BOARD_SUBS)
+                        for token in COMPILE_OPTS[opt]]
+"""
+    ])
+    # print(substitutions)
+
+    with open(template_path, "r") as template:
+        script_content = template.read()
+
+    script_content = expand(script_content, substitutions)
+
+    if output_path:
+        with open(output_path, "w") as output:
+            output.write(script_content)
+    else:
+        print(script_content)
 
 
 if __name__ == "__main__":
