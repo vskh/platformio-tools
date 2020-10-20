@@ -1,0 +1,3 @@
+[submodule "vendor/devkit-sdk"]
+	path = vendor/devkit-sdk
+	url = https://github.com/microsoft/devkit-sdk.git
