@@ -68,14 +68,22 @@ def extract_kv_tokens(tokens: List[AnyStr], match: Callable[[AnyStr], re.Match],
     return result
 
 
-def extract_cppdefines(tokens: List[AnyStr]) -> Set[Tuple[AnyStr, AnyStr]]:
+def extract_defines(tokens: List[AnyStr]) -> Set[Tuple[AnyStr, AnyStr]]:
     return extract_kv_tokens(
-        tokens, lambda t: re.search("^-D(\w+)=?(.*?)?$", t), True
+        tokens, lambda t: re.search("^-D([\w\{\}\.]+)(?:=(.*?)?)?$", t), True
     )
 
 
-def extract_cpppath(tokens: List[AnyStr]) -> Set[AnyStr]:
+def extract_includes(tokens: List[AnyStr]) -> Set[AnyStr]:
     return extract_v_tokens(tokens, lambda t: re.search("^-I(.*?)$", t), True)
+
+
+def extract_cppdefines(tokens: List[AnyStr]) -> Set[Tuple[AnyStr, AnyStr]]:
+    return extract_defines(tokens)
+
+
+def extract_cpppath(tokens: List[AnyStr]) -> Set[AnyStr]:
+    return extract_includes(tokens)
 
 
 def extract_libs(tokens: List[AnyStr]) -> Set[AnyStr]:
@@ -88,6 +96,7 @@ def extract_libpaths(tokens: List[AnyStr]) -> Set[AnyStr]:
 
 def extract_build_flags(recipes: Dict[AnyStr, List[AnyStr]]) -> Dict[AnyStr, Any]:
     extracted_flags = {
+        'ASFLAGS': list(),       # assembler flags
         'CCFLAGS': list(),       # C/C++ common compiler flags
         'CFLAGS': list(),        # C compiler flags
         'CPPDEFINES': list(),    # C preprocessor flags
@@ -97,6 +106,10 @@ def extract_build_flags(recipes: Dict[AnyStr, List[AnyStr]]) -> Dict[AnyStr, Any
         'LIBS': list(),          # libraries to link with
         'LINKFLAGS': list()      # linker flags
     }
+
+    # process AS flags
+    as_recipe = recipes[RECIPE_IDS['as']]
+    extracted_flags['ASFLAGS'].extend(as_recipe)
 
     # process C flags
     c_recipe = recipes[RECIPE_IDS['c']]
@@ -191,6 +204,20 @@ def clean_recipes(recipes: Dict[AnyStr, List[AnyStr]]) -> Dict[AnyStr, List[AnyS
     return result
 
 
+def expand_dict(d: Dict[AnyStr, Any], subs: Dict[AnyStr, AnyStr]) -> Dict[AnyStr, Any]:
+    result = dict()
+    for key, val in d.items():
+        key = expand(key, subs)
+
+        if isinstance(val, str):
+            result[key] = expand(val, subs)
+        elif isinstance(val, tuple):
+            result[key] = tuple(expand(token, subs) for token in val)
+        elif isinstance(val, list):
+            result[key] = [expand(token, subs) for token in val]
+    return result
+
+
 def main(argv):
     num_args = len(argv)
 
@@ -213,10 +240,9 @@ def main(argv):
     substitutions = extract_build_flags(recipes)
     substitutions['HELPERS'] = "\n".join([
         inspect.getsource(expand),
+        inspect.getsource(expand_dict),
         """
-for opt in COMPILE_OPTS.keys():
-    COMPILE_OPTS[opt] = [expand(token, BOARD_SUBS)
-                        for token in COMPILE_OPTS[opt]]
+COMPILE_OPTS = expand_dict(COMPILE_OPTS, BOARD_SUBS)
 """
     ])
     # print(substitutions)

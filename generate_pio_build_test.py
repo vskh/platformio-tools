@@ -7,7 +7,8 @@ import generate_pio_build as gpb
 
 class ReadPlatformDefTests(unittest.TestCase):
     def test_expands_dots_in_format_placeholders(self):
-        platform_def = gpb.read_platform_def("platform_test.txt")
+        platform_def = gpb.read_platform_def(
+            "./vendor/devkit-sdk/AZ3166/src/platform.txt")
 
         test_key = "compiler_S_flags"
         self.assertIn(test_key, platform_def)
@@ -33,6 +34,34 @@ class ExpandTests(unittest.TestCase):
     def test_leaves_unknown_as_is(self):
         expansion = gpb.expand("test = {test3} {test5}", self.test_def_index)
         self.assertEqual(expansion, "test = 3 {test5}")
+
+
+class ExpandDictTests(unittest.TestCase):
+    test_def_index = {'test1': "1", 'test2': "2", 'test3': "3"}
+
+    def test_expands_dict_of_strings(self):
+        source_dict = {'t1': "{test1}"}
+        expected_dict = {'t1': "1"}
+        self.assertEqual(gpb.expand_dict(
+            source_dict, self.test_def_index), expected_dict)
+
+    def test_expands_dict_of_tuples(self):
+        source_dict = {'t1': ("{test1}", "{test2}", "test3")}
+        expected_dict = {'t1': ("1", "2", "test3")}
+        self.assertEqual(gpb.expand_dict(
+            source_dict, self.test_def_index), expected_dict)
+
+    def test_expands_dict_of_lists(self):
+        source_dict = {'t1': ["{test1}", "{test2}", "test3"]}
+        expected_dict = {'t1': ["1", "2", "test3"]}
+        self.assertEqual(gpb.expand_dict(
+            source_dict, self.test_def_index), expected_dict)
+
+    def test_expands_dict_keys(self):
+        source_dict = {'t{test1}': "test"}
+        expected_dict = {'t1': "test"}
+        self.assertEqual(gpb.expand_dict(
+            source_dict, self.test_def_index), expected_dict)
 
 
 class ExtractExpandedRecipesTests(unittest.TestCase):
@@ -127,10 +156,15 @@ class ExtractorsTests(unittest.TestCase):
     def test_extract_cppdefines(self):
         expected_defines = set([
             ('USBCON', None),
-            ('USB_MANUFACTURER', '{build.usb_manufacturer}')
+            ('USB_MANUFACTURER', '{build.usb_manufacturer}'),
+            ('ARDUINO_{build.board}', None)
         ])
         defines = gpb.extract_cppdefines(
-            ["-DUSBCON", "-DUSB_MANUFACTURER={build.usb_manufacturer}"]
+            [
+                "-DUSBCON",
+                "-DUSB_MANUFACTURER={build.usb_manufacturer}",
+                "-DARDUINO_{build.board}"
+            ]
         )
         self.assertSetEqual(expected_defines, defines)
 

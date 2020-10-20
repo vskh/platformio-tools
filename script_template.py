@@ -23,6 +23,7 @@ http://www.stm32duino.com
 
 from os import walk
 from os.path import isdir, join
+from typing import Dict, AnyStr, Any
 
 from SCons.Script import DefaultEnvironment
 
@@ -38,6 +39,7 @@ assert isdir(FRAMEWORK_DIR)
 env.SConscript("../_bare.py")
 
 COMPILE_OPTS = dict(
+    ASFLAGS={ASFLAGS},
     CFLAGS={CFLAGS},
     CCFLAGS={CCFLAGS},
     CXXFLAGS={CXXFLAGS},
@@ -49,14 +51,24 @@ COMPILE_OPTS = dict(
 )
 
 BOARD_SUBS = dict(
+    build_arch=board.get("build.arch"),
+    build_board=board.get("build.board"),
+    build_core_path=join(FRAMEWORK_DIR, "cores", board.get("core")),
+    build_mcu=board.get("build.cpu"),
     build_path=FRAMEWORK_DIR,
-    build_mcu=env.BoardConfig().get("build.cpu"),
-    build_system_path=join(FRAMEWORK_DIR, "system")
+    build_project_name="pio-project",
+    build_system_path=join(FRAMEWORK_DIR, "system"),
+    build_variant_path=join(FRAMEWORK_DIR, "variants",
+                            board.get("build.variant")),
+    build_ldscript=board.get(
+        "build.ldscript", board.get("build.arduino.ldscript")),
+    runtime_ide_version=10813
 )
 
 {HELPERS}
 
 env.Append(
+    ASFLAGS=COMPILE_OPTS["ASFLAGS"],
     CFLAGS=COMPILE_OPTS["CFLAGS"],
     CCFLAGS=COMPILE_OPTS["CCFLAGS"],
     CXXFLAGS=COMPILE_OPTS["CXXFLAGS"],
@@ -66,3 +78,5 @@ env.Append(
     LINKFLAGS=COMPILE_OPTS["LINKFLAGS"],
     LIBSOURCE_DIRS=COMPILE_OPTS["LIBSOURCE_DIRS"]
 )
+
+env.Replace(LDSCRIPT_PATH=BOARD_SUBS['build_ldscript'])
