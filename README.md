@@ -31,7 +31,16 @@ Platforms refer to framework packages in platform.json via:
    ```
 4. Pack the `AZ3166/src` directory into archive so that it unpacks into `framework-arduinostm32mxchip`. Per common convention, archive should be named as `framework-arduinostm32mxchip-<package.version>.<ext>`.
 5. Host the package somewhere.
-6. Update platform registries/add extra into `platform.json` of `ststm32` platform, update package version requirements as necessary.
+6. Update platform registries/add extra into `platform.json` of `ststm32` platform, update package version requirements as necessary, e.g.:
+   ```
+   ...
+     "packageRepositories": [
+       "https://dl.bintray.com/platformio/dl-packages/manifest.json",
+       "http://dl.platformio.org/packages/manifest.json",
+       "https://gist.githubusercontent.com/vskh/5251d44c1b6d577ab4fbb205ad959b18/raw/208fbcb19746ab49fafb5c415090cb9eb3eb3044/platformio-hack-manifest"
+   ],
+   ...
+   ```
 7. Generate build script out of `platform.txt` in Arduino IDE format provided with devkit-sdk in AZ3166 directory:
    `./generate_pio_build.py ./vendor/devkit-sdk/AZ3166/src/platform.txt script_template.py mxchip.py`
 8. Replace `./builder/frameworks/arduino/mxchip.py` in `ststm32` platform by script generated on previous step.
