@@ -51,9 +51,9 @@ COMPILE_OPTS = dict(
 )
 
 BOARD_SUBS = dict(
-    build_arch=board.get("build.arch"),
-    build_board=board.get("build.board"),
-    build_core_path=join(FRAMEWORK_DIR, "cores", board.get("core")),
+    build_arch="STM32",
+    build_board="MXCHIP_AZ3166",
+    build_core_path=join(FRAMEWORK_DIR, "cores", "arduino"),
     build_mcu=board.get("build.cpu"),
     build_path=FRAMEWORK_DIR,
     build_project_name="pio-project",

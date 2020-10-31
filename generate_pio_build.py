@@ -29,6 +29,12 @@ def difference(list1: List[AnyStr], list2: List[AnyStr]) -> List[AnyStr]:
     return [item for item in list1 if item not in list2]
 
 
+def prepare_for_shell(s: AnyStr) -> AnyStr:
+    s = re.sub("\(", "\\(", s)
+    s = re.sub("\)", "\\)", s)
+    return s
+
+
 def extract_v_tokens(tokens: List[AnyStr], match: Callable[[AnyStr], re.Match], consume=False) -> Set[AnyStr]:
     result = set()
     to_clean = set()
@@ -37,7 +43,7 @@ def extract_v_tokens(tokens: List[AnyStr], match: Callable[[AnyStr], re.Match], 
         if m is not None:
             to_clean.add(token)
             v = m.group(1)
-            result.add(v)
+            result.add(prepare_for_shell(v))
     if consume:
         for token in to_clean:
             while True:  # to remove all occurrences
@@ -57,7 +63,7 @@ def extract_kv_tokens(tokens: List[AnyStr], match: Callable[[AnyStr], re.Match],
         if matches is not None:
             to_clean.append(token)
             k, v = matches.groups()
-            result.add((k, v if v else None))
+            result.add((k, prepare_for_shell(v) if v else None))
     if consume:
         for token in to_clean:
             while True:
@@ -132,6 +138,8 @@ def extract_build_flags(recipes: Dict[AnyStr, List[AnyStr]]) -> Dict[AnyStr, Any
     extracted_flags['LIBPATH'].extend(extract_libpaths(ld_recipe))
     extracted_flags['LINKFLAGS'].extend(ld_recipe)
 
+    extracted_flags['CPPDEFINES'] = list(set(extracted_flags['CPPDEFINES']))
+
     return extracted_flags
 
 
@@ -139,6 +147,9 @@ def expand(def_str: AnyStr, def_index: Dict[AnyStr, AnyStr]) -> AnyStr:
     class fmt_dict(dict):
         def __missing__(self, key):
             return f"{{{key}}}"
+
+    if not def_str:
+        return None
 
     substitutions = fmt_dict(def_index)
     before_expansion = def_str
@@ -214,7 +225,13 @@ def expand_dict(d: Dict[AnyStr, Any], subs: Dict[AnyStr, AnyStr]) -> Dict[AnyStr
         elif isinstance(val, tuple):
             result[key] = tuple(expand(token, subs) for token in val)
         elif isinstance(val, list):
-            result[key] = [expand(token, subs) for token in val]
+            result[key] = list()
+            for token in val:
+                if isinstance(token, tuple):
+                    result[key].append(tuple(expand(el, subs) for el in token))
+                else:
+                    expand(token, subs)
+
     return result
 
 
@@ -245,7 +262,6 @@ def main(argv):
 COMPILE_OPTS = expand_dict(COMPILE_OPTS, BOARD_SUBS)
 """
     ])
-    # print(substitutions)
 
     with open(template_path, "r") as template:
         script_content = template.read()
