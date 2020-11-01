@@ -139,6 +139,7 @@ def extract_build_flags(recipes: Dict[AnyStr, List[AnyStr]]) -> Dict[AnyStr, Any
     extracted_flags['LINKFLAGS'].extend(ld_recipe)
 
     extracted_flags['CPPDEFINES'] = list(set(extracted_flags['CPPDEFINES']))
+    extracted_flags['CPPPATH'] = list(set(extracted_flags['CPPPATH']))
 
     return extracted_flags
 
@@ -230,7 +231,7 @@ def expand_dict(d: Dict[AnyStr, Any], subs: Dict[AnyStr, AnyStr]) -> Dict[AnyStr
                 if isinstance(token, tuple):
                     result[key].append(tuple(expand(el, subs) for el in token))
                 else:
-                    expand(token, subs)
+                    result[key].append(expand(token, subs))
 
     return result
 
